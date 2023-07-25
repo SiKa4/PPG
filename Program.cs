@@ -1,7 +1,10 @@
 ﻿using System;
+using System.Collections;
 using System.Diagnostics;
+using System.Diagnostics.Tracing;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using Windows.Devices.Bluetooth;
@@ -10,7 +13,6 @@ using Windows.Devices.Enumeration;
 using Windows.Foundation.Diagnostics;
 using Windows.Storage.Streams;
 using Windows.UI.Xaml.Controls;
-
 internal class Program
 {
     private const string HeartRateServiceId = "180d";
@@ -126,23 +128,62 @@ internal class Program
             }
 
             deviceId = device.Id;
-            characteristic.ValueChanged += async (gattCharacteristic, eventArgs) =>
+
+            //ppg and hr listener 
+
+            const string PPG_ID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
+
+            var service_ppg = services.FirstOrDefault(svc => svc.Uuid.ToString() == PPG_ID);
+
+            var charactiristicResult_PPG = await service_ppg.GetCharacteristicsAsync();
+
+            string PMD_DATA_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
+
+            string PMD_CONTROL = "fb005c81-02e7-f387-1cad-8acd2d8df0c8";
+
+            var characteristic_PPG_Read = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == PMD_DATA_UUID);
+            await characteristic_PPG_Read.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+
+            var characteristic_PPG_Write = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == PMD_CONTROL);
+
+            byte[] PPG_SETTING = new byte[] { 2, 1, 0, 1, 55, 0, 1, 1, 22, 0, 4, 1, 4 };
+            await characteristic_PPG_Write.WriteValueAsync(PPG_SETTING.AsBuffer(), GattWriteOption.WriteWithoutResponse);
+
+            bool isWearing = false;
+            int locationСounter = 3;
+            characteristic.ValueChanged += (gattCharacteristic, eventArgs) =>
             {
                 var value = BitConverter.ToInt16(eventArgs.CharacteristicValue.ToArray().Reverse().ToArray(), 0);
+
+                //if (isWearing) Console.WriteLine("Надет");
+                if (!isWearing) value = 0;
                 Send($"hr: {value}");
 
-                //ppg
-               /* const string PPG_ID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
+            };
 
-                var service_ppg = services.FirstOrDefault(svc => svc.Uuid.ToString() == PPG_ID);
+            characteristic_PPG_Read.ValueChanged += (gattCharacteristic, eventArgs) =>
+            {
+                var arrayByte = eventArgs.CharacteristicValue.ToArray();
+                /* var answer = new HRParser().parsePpg(arrayByte);
 
-                var charactiristicResult_PPG = await service_ppg.GetCharacteristicsAsync();
+                 var xObject = answer["x"];
+                 var xList = (xObject as List<double>).Count != 0 ? (xObject as List<double>) : new List<double>();
+                 Console.WriteLine(xList.Count);
+                 if (xList.Count == 1 && locationСounter < 3) locationСounter++;
+                 else if (xList.Count != 1 && locationСounter != 0) locationСounter--;
 
-                string PMD_DATA_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
+                 if (locationСounter == 3) isWearing = false;
+                 else if (locationСounter == 0) isWearing = true;*/
+                //Console.WriteLine(arrayByte.Length);
+                if (arrayByte.Length == 228 || arrayByte.Length == 224 && locationСounter < 3) locationСounter++;
+                else if (arrayByte.Length != 228 || arrayByte.Length != 224 && locationСounter != 0) locationСounter--;
 
-                var characteristic_PPG = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == PMD_DATA_UUID);
-
-                var a = await characteristic_PPG.ReadValueAsync();*/
+                if (locationСounter == 3) isWearing = false;
+                else if (locationСounter == 0 || arrayByte.Length == 229)
+                {
+                    locationСounter = 0;
+                    isWearing = true;
+                }
             };
         };
 

@@ -15,7 +15,7 @@ public class HRParser
     private object timeconstant = 0.2;
     private Dictionary<string, object> dataobject = new Dictionary<string, object>();
 
-    private List<object> createArray(int length, params object[] args)
+    private List<object> createArray(int length, bool isRecutsion, params object[] args)
     {
         List<object> arr = new List<object>(new object[length]);
         int i = length;
@@ -23,7 +23,8 @@ public class HRParser
         {
             while (i > 0)
             {
-                arr[length - 1 - i] = createArray(Convert.ToInt32(args[0]), GetRange(args, 1, args.Length));
+                if(isRecutsion && length - 1 - i >= 0)
+                    arr[length - 1 - i] = createArray(Convert.ToInt32(args[0]), false, GetRange(args, 1, args.Length));
                 i--;
             }
         }
@@ -35,9 +36,9 @@ public class HRParser
         if (start < 0)
             throw new ArgumentOutOfRangeException(nameof(start), "Start index must be non-negative.");
         if (end >= source.Length)
-            throw new ArgumentOutOfRangeException(nameof(end), "End index must be less than the length of the array.");
+            end = source.Length - 1;
         if (start > end)
-            throw new ArgumentException("Start index must be less than or equal to end index.");
+            start = 0;
 
         int rangeLength = end - start + 1;
         T[] result = new T[rangeLength];
@@ -55,7 +56,7 @@ public class HRParser
         List<List<object>> nestedList = new List<List<object>>(new List<object>[length]);
         for (int i = 0; i < length; i++)
         {
-            nestedList[i] = createArray(Convert.ToInt32(args[0]), GetRange(args, 1, args.Length));
+            nestedList[i] = createArray(Convert.ToInt32(args[0]),true ,GetRange(args, 1, args.Length));
         }
         return nestedList;
     }
@@ -64,6 +65,7 @@ public class HRParser
     {
         int offset = 0;
         int block = Convert.ToInt32(bits) / 2 * Convert.ToInt32(channels);
+        if (block == 0) block = 1;
         int length = arr.Length / block;
         List<List<object>> f_array = createNestedList(length, channels);
         while (offset < length * block)
@@ -127,14 +129,19 @@ public class HRParser
 
     private List<List<object>> addDeltaFrame(List<List<object>> frame, List<List<object>> data_array)
     {
-        int chans = frame[0].Count;
-        for (int offset = 0; offset < frame.Count; offset++)
+        try
         {
-            for (int ch = 0; ch < chans; ch++)
+            int chans = frame[0].Count;
+            for (int offset = 0; offset < frame.Count; offset++)
             {
-                data_array[ch].Add(Convert.ToDouble(data_array[ch][data_array[ch].Count - 1]) + Convert.ToDouble(frame[offset][ch]));
+                for (int ch = 0; ch < chans; ch++)
+                {
+                    data_array[ch].Add(Convert.ToDouble(data_array[ch][data_array[ch].Count - 1]) + Convert.ToDouble(frame[offset][ch]));
+                }
             }
         }
+        catch { }
+        
         return data_array;
     }
 
@@ -150,23 +157,29 @@ public class HRParser
 
     private Dictionary<string, object> deltaFrameDescription(byte[] b, int channels)
     {
-        int bits = b[0];
-        int number = b[1];
+        int bits = 0;
+        int number = 0;
+        try { bits = b[0]; }
+        catch (Exception e) { }
+
+        try { number = b[1]; }
+        catch (Exception e) { }
+        
         return new Dictionary<string, object>() { { "bits", bits }, { "number", number }, { "bytes", number * bits / 8 * channels }, { "channels", channels } };
     }
 
     private int wordsToSignedInteger(byte[] words, int bitsPerWord)
     {
         int val = 0;
-        int wordVal = Convert.ToInt32(Math.Pow(2, bitsPerWord));
+        int wordVal = int.Parse(Math.Round(Math.Pow(2, bitsPerWord)).ToString());
         for (int i = 0; i < words.Length; i++)
         {
-            val += words[i] * Convert.ToInt32(Math.Pow(wordVal, i));
+            val += words[i] * int.Parse(Math.Round(Math.Pow(wordVal, i)).ToString());
         }
         int bits = words.Length * bitsPerWord;
-        if (val > Convert.ToInt32(Math.Pow(2, bits - 1)))
+        if (val > Math.Pow(2, bits - 1))
         {
-            val -= Convert.ToInt32(Math.Pow(2, bits));
+            val -= int.Parse(Math.Round(Math.Pow(2, bits)).ToString());
         }
         return val;
     }
@@ -212,7 +225,6 @@ public class HRParser
             DateTime y = DateTime.Parse("1/1/1970 00:00:00");
             double seconds = (Math.Abs((x - y).TotalSeconds * 1000) + startPacketTime) / 1000;
             DateTime startDate = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(seconds);
-            Console.WriteLine("Device started at " + startDate);
             if (firstTime.Equals(0))
             {
                 firstTime = computerTime;
@@ -234,7 +246,8 @@ public class HRParser
         double fraction = 1 + 1.0 / (Convert.ToDouble(samplerate) * Convert.ToDouble(timeconstant));
         for (int n = 0; n < array.Count; n++)
         {
-            lastOut = fArr[n] = Math.Round((array[n] + lastOut - lastIn) / fraction);
+            if(fArr.Count != 0)
+                lastOut = fArr[n] = Math.Round((array[n] + lastOut - lastIn) / fraction);
             lastIn = array[n];
         }
         return fArr;
@@ -361,11 +374,18 @@ public class HRParser
         List<double> ppgTime = fillTimeArray(deviceName, GetRange(data, 1, 9), dataTime, npoints, 1000.0 / Convert.ToDouble(samplerate));
         pushData(deviceName, new List<object> { "ppg_sum_2" }, ppgTime, new List<List<double>> { ppgSum });
 
-        var last_incom_copy = (double)last_incom[deviceName];
-        var last_filter_copy = (double)last_filter[deviceName];
+        var last_incom_copy = double.Parse(last_incom[deviceName].ToString());
+        var last_filter_copy = double.Parse(last_filter[deviceName].ToString());
         List<double> ppgSumFilter = hpFilter(ppgSum, ref last_incom_copy, ref last_filter_copy);
-        last_filter[deviceName] = ppgSumFilter[ppgSumFilter.Count - 1];
-        last_incom[deviceName] = ppgSum[ppgSum.Count - 1];
+        if(ppgSumFilter.Count != 0 && ppgSumFilter.Count - 1 >= 0)
+            last_filter[deviceName] = ppgSumFilter[ppgSumFilter.Count - 1];
+        else
+            last_filter[deviceName] = 0;
+
+        if (ppgSum.Count != 0 && ppgSum.Count - 1 >= 0)
+            last_incom[deviceName] = ppgSum[ppgSum.Count - 1];
+        else
+            last_incom[deviceName] = 0;
         graph_time[deviceName] = deviceTime;
 
         pushData(deviceName, new List<object> { "ppg_sum" }, ppgTime, new List<List<double>> { ppgSumFilter });
