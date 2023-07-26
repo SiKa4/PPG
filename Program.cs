@@ -43,7 +43,7 @@ internal class Program
 
         var Send = (string message) =>
         {
-            //socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
+            socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
             Console.WriteLine(message);
         };
         
@@ -179,7 +179,7 @@ internal class Program
             };
 
             var engine = Python.CreateEngine();
-            var scriptSource = engine.CreateScriptSourceFromFile("./../../../parser.py");
+            var scriptSource = engine.CreateScriptSourceFromFile("./parser.py");
 
             dynamic scope = engine.CreateScope();
             scriptSource.Execute(scope);
