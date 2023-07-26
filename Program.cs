@@ -20,9 +20,15 @@ using static IronPython.Modules._ast;
 internal class Program
 {
     private const string HeartRateServiceId = "180d";
+    private const string HeartRateCharacteristicId = "00002a37-0000-1000-8000-00805f9b34fb";
 
+    private const string PPG_ID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
+    private const string PMD_CONTROL = "fb005c81-02e7-f387-1cad-8acd2d8df0c8";
+    private const string PMD_DATA_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
+
+    private static BluetoothLEDevice bluetoothLeDevice;
     [STAThread]
-    public static void Main(string[] args)
+    static void Main(string[] args)
     {
 
         _ = new Mutex(true, "HRMonitor", out var prevInstance);
@@ -40,7 +46,7 @@ internal class Program
                 BluetoothLEDevice.GetDeviceSelectorFromPairingState(false),
                 requestedProperties,
                 DeviceInformationKind.AssociationEndpoint);
-
+       
         var Send = (string message) =>
         {
             socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
@@ -58,7 +64,6 @@ internal class Program
         deviceWatcher.Added += async (sender, device) =>
         {
             if (!device.Name.Contains(deviceName)) return;
-
             Send($"connected: {device.Name}");
 
             BluetoothLEDevice bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
@@ -115,15 +120,21 @@ internal class Program
                 isCheckConnection("error: service.GetCharacteristicsAsync()");
             }
 
-            var characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Notify));
+            var characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
 
-            void isCheckConnectionCharacteristic()
+            async void isCheckConnectionCharacteristic()
             {
-                characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Notify));
+                characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
                 if (characteristic == null)
                 {
+                    //new initialization BLEDevice
+                    bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
+                    result = await bluetoothLeDevice.GetGattServicesAsync();
+                    services = result.Services;
+                    service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
+                    charactiristicResult = await service.GetCharacteristicsAsync();
 
-                    Send("error: GattCharacteristic with Notify not found");
+                    Send("Reboot");
                     Thread.Sleep(1000);
                     isCheckConnectionCharacteristic();
                 }
@@ -136,7 +147,7 @@ internal class Program
 
             if (characteristic == null)
             {
-                isCheckConnectionCharacteristic();
+               isCheckConnectionCharacteristic();
             }
 
             var status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
@@ -151,15 +162,15 @@ internal class Program
 
             //ppg and hr listener 
 
-            const string PPG_ID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
+            
 
             var service_ppg = services.FirstOrDefault(svc => svc.Uuid.ToString() == PPG_ID);
 
             var charactiristicResult_PPG = await service_ppg.GetCharacteristicsAsync();
 
-            string PMD_DATA_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
+            
 
-            string PMD_CONTROL = "fb005c81-02e7-f387-1cad-8acd2d8df0c8";
+            
 
             var characteristic_PPG_Read = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == PMD_DATA_UUID);
             await characteristic_PPG_Read.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
@@ -211,7 +222,6 @@ internal class Program
             //Send($"disconnected: {deviceId}");
             //deviceId = null;
         };
-
 
         deviceWatcher.Start();
         while (true)
