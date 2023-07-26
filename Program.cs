@@ -175,8 +175,8 @@ internal class Program
                  if (locationСounter == 3) isWearing = false;
                  else if (locationСounter == 0) isWearing = true;*/
                 //Console.WriteLine(arrayByte.Length);
-                if (arrayByte.Length == 228 || arrayByte.Length == 224 && locationСounter < 3) locationСounter++;
-                else if (arrayByte.Length != 228 || arrayByte.Length != 224 && locationСounter != 0) locationСounter--;
+                if ((arrayByte.Length == 228 || arrayByte.Length == 224) && locationСounter < 3) locationСounter++;
+                else if ((arrayByte.Length != 228 || arrayByte.Length != 224) && locationСounter != 0) locationСounter--;
 
                 if (locationСounter == 3) isWearing = false;
                 else if (locationСounter == 0 || arrayByte.Length == 229)
