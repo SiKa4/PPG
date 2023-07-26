@@ -1,8 +1,10 @@
-﻿using System;
+﻿using IronPython.Hosting;
+using System;
 using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -13,6 +15,8 @@ using Windows.Devices.Enumeration;
 using Windows.Foundation.Diagnostics;
 using Windows.Storage.Streams;
 using Windows.UI.Xaml.Controls;
+using static IronPython.Modules._ast;
+
 internal class Program
 {
     private const string HeartRateServiceId = "180d";
@@ -82,10 +86,26 @@ internal class Program
             var services = result.Services;
             var service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
 
+            void isCheckServices()
+            {
+                service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
+                if (service == null)
+                {
+
+                    Send("error: HEART RATE SERVICE not found");
+                    Thread.Sleep(1000);
+                    isCheckServices();
+                }
+                else
+                {
+                    return;
+                }
+
+            }
+
             if (service == null)
             {
-                Send("error: HEART RATE SERVICE not found");
-                return;
+                isCheckServices();
             }
 
             var charactiristicResult = await service.GetCharacteristicsAsync();
@@ -150,51 +170,46 @@ internal class Program
             await characteristic_PPG_Write.WriteValueAsync(PPG_SETTING.AsBuffer(), GattWriteOption.WriteWithoutResponse);
 
             bool isWearing = false;
-            int locationСounter = 3;
+            
             characteristic.ValueChanged += (gattCharacteristic, eventArgs) =>
             {
                 var value = BitConverter.ToInt16(eventArgs.CharacteristicValue.ToArray().Reverse().ToArray(), 0);
-
-                //if (isWearing) Console.WriteLine("Надет");
                 if (!isWearing) value = 0;
                 Send($"hr: {value}");
-
             };
 
+            var engine = Python.CreateEngine();
+            var scriptSource = engine.CreateScriptSourceFromFile("./../../../parser.py");
+
+            dynamic scope = engine.CreateScope();
+            scriptSource.Execute(scope);
+            dynamic myClass = scope.HRParser();
+
+            int iterationsOfNotBeingOnHand = 0;
             characteristic_PPG_Read.ValueChanged += (gattCharacteristic, eventArgs) =>
             {
                 var arrayByte = eventArgs.CharacteristicValue.ToArray();
-                /* var answer = new HRParser().parsePpg(arrayByte);
+                var result = myClass.parse_ppg(arrayByte);
+                List<double> x = ConvertedDynamicInDoubleList(result["x"]);
 
-                 var xObject = answer["x"];
-                 var xList = (xObject as List<double>).Count != 0 ? (xObject as List<double>) : new List<double>();
-                 Console.WriteLine(xList.Count);
-                 if (xList.Count == 1 && locationСounter < 3) locationСounter++;
-                 else if (xList.Count != 1 && locationСounter != 0) locationСounter--;
+                if (x.Count > 35 && iterationsOfNotBeingOnHand > 0)
+                    iterationsOfNotBeingOnHand--;
+                else if(x.Count <= 35 && iterationsOfNotBeingOnHand < 6)
+                    iterationsOfNotBeingOnHand++;
 
-                 if (locationСounter == 3) isWearing = false;
-                 else if (locationСounter == 0) isWearing = true;*/
-                //Console.WriteLine(arrayByte.Length);
-                if ((arrayByte.Length == 228 || arrayByte.Length == 224) && locationСounter < 3) locationСounter++;
-                else if ((arrayByte.Length != 228 || arrayByte.Length != 224) && locationСounter != 0) locationСounter--;
+                if (iterationsOfNotBeingOnHand == 0) isWearing = true;
+                else if (iterationsOfNotBeingOnHand == 6) isWearing = false;
 
-                if (locationСounter == 3) isWearing = false;
-                else if (locationСounter == 0 || arrayByte.Length == 229)
-                {
-                    locationСounter = 0;
-                    isWearing = true;
-                }
             };
         };
-
 
 
         deviceWatcher.Removed += (sender, update) =>
         {
             if (update.Id != deviceId) return;
             
-            Send($"disconnected: {deviceId}");
-            deviceId = null;
+            //Send($"disconnected: {deviceId}");
+            //deviceId = null;
         };
 
 
@@ -203,5 +218,15 @@ internal class Program
         {
             Thread.Sleep(50);
         }
+    }
+
+    static List<double> ConvertedDynamicInDoubleList(dynamic diction)
+    {
+        List<double> converted = new List<double>();
+        foreach(var i in diction)
+        {
+            converted.Add(i);
+        }
+        return converted;
     }
 }

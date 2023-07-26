@@ -9,7 +9,10 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.22621.755" />
+      <PackageReference Include="IronPython" Version="3.4.1" />
+      <PackageReference Include="IronPython.StdLib" Version="3.4.1" />
+      <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+      <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.25387-preview" />
     </ItemGroup>
 
 </Project>
