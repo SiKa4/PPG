@@ -6,6 +6,7 @@ using System.Text;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
+using static IronPython.Modules._ast;
 
 internal class Program
 {
@@ -45,8 +46,6 @@ internal class Program
 
         string? deviceId = null;
 
-        Send("error: disconnected1");
-
         //python parser
 
         var engine = Python.CreateEngine();
@@ -64,24 +63,44 @@ internal class Program
             BluetoothLEDevice bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
             GattDeviceServicesResult result = await bluetoothLeDevice.GetGattServicesAsync();
 
-            if (result == null && result.Status != GattCommunicationStatus.Success) return;
+            if (result == null && result.Status != GattCommunicationStatus.Success)
+            {
+                Send("result == null && result.Status != GattCommunicationStatus.Success");
+                return;
+            }
 
             var services = result.Services;
             var service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
 
-            if (service == null) return;
+            if (service == null)
+            {
+                Send("service == null");
+                return;
+            }
 
             var charactiristicResult = await service.GetCharacteristicsAsync();
 
-            if (charactiristicResult.Status != GattCommunicationStatus.Success) return;
+            if (charactiristicResult.Status != GattCommunicationStatus.Success)
+            {
+                Send("error: charactiristicResult.Status != GattCommunicationStatus.Success");
+                return;
+            }
 
             var characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
 
-            if (service == null || characteristic == null) return;
+            if (service == null || characteristic == null) 
+            {
+                Send("error: service == null || characteristic == null");
+                return;
+            } 
 
             GattCommunicationStatus status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify); ;
 
-            if (status != GattCommunicationStatus.Success) return;
+            if (status != GattCommunicationStatus.Success)
+            {
+                Send("error: status != GattCommunicationStatus.Success");
+                return;
+            }
 
             Send($"connected: {device.Name}");
 
@@ -93,7 +112,11 @@ internal class Program
 
             var characteristic_PPG_Read = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString().Contains(PMD_DATA_UUID));
 
-            if (characteristic_PPG_Read == null) return;
+            if (characteristic_PPG_Read == null)
+            {
+                Send("error: characteristic_PPG_Read == null");
+                return;
+            }
 
             var characteristic_PPG_Write = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString().Contains(PMD_CONTROL));
 
@@ -132,7 +155,7 @@ internal class Program
         {
             if (deviceId != null && update.Id == deviceId)
             {
-                Send("error: disconnected2");
+                Send($"disconnected: {deviceId}");
                 deviceId = null;
                 deviceWatcher.Stop();
             }
