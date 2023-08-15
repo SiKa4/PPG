@@ -1,22 +1,11 @@
 ﻿using IronPython.Hosting;
-using System;
-using System.Collections;
-using System.Diagnostics;
-using System.Diagnostics.Tracing;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
-using Windows.Foundation;
-using Windows.Foundation.Diagnostics;
-using Windows.Storage.Streams;
-using Windows.UI.Xaml.Controls;
-using static IronPython.Modules._ast;
 
 internal class Program
 {
@@ -28,16 +17,24 @@ internal class Program
     private const string PMD_DATA_UUID = "5c82";
 
     private static BluetoothLEDevice bluetoothLeDevice;
+
     [STAThread]
     static void Main(string[] args)
     {
+        BleDevice(args);
 
+        while (true)
+            Thread.Sleep(1);
+    }
+
+    static async Task BleDevice(string[] args)
+    {
         _ = new Mutex(true, "HRMonitor", out var prevInstance);
         if (prevInstance == false)
             return;
 
         var deviceName = args.Length > 0 ? args[0] : "Polar";
-        
+
         string[] requestedProperties = { "System.Devices.Aep.DeviceAddress", "System.Devices.Aep.IsConnected" };
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         var ip = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 8081);
@@ -47,7 +44,7 @@ internal class Program
                 BluetoothLEDevice.GetDeviceSelectorFromPairingState(false),
                 requestedProperties,
                 DeviceInformationKind.AssociationEndpoint);
-       
+
         var Send = (string message) =>
         {
             socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
@@ -58,13 +55,22 @@ internal class Program
 
         Send("error: disconnected1");
 
+        //python parser
+
+        var engine = Python.CreateEngine();
+        var scriptSource = engine.CreateScriptSourceFromFile("./parser.py");
+
+        dynamic scope = engine.CreateScope();
+        scriptSource.Execute(scope);
+        dynamic myClass = scope.HRParser();
+        ///
+
         deviceWatcher.Added += async (sender, device) =>
         {
             if (!device.Name.Contains(deviceName)) return;
 
             BluetoothLEDevice bluetoothLeDevice;
             GattDeviceServicesResult result = null;
-
             async Task isCheckConnection()
             {
                 try
@@ -76,16 +82,14 @@ internal class Program
                         Thread.Sleep(1000);
                         await isCheckConnection();
                     }
-                    else return;
                 }
                 catch
                 {
-                   await isCheckConnection();
+                    await isCheckConnection();
                 }
-                
             }
 
-            if(result == null || result.Status != GattCommunicationStatus.Success) await isCheckConnection();
+            if (result == null || result.Status != GattCommunicationStatus.Success) await isCheckConnection();
 
             var services = result.Services;
             var service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
@@ -98,24 +102,14 @@ internal class Program
                     Thread.Sleep(1000);
                     isCheckServices();
                 }
-                else
-                {
-                    return;
-                }
-
             }
 
-            if (service == null)
-            {
-                isCheckServices();
-            }
+            if (service == null) isCheckServices();
 
             var charactiristicResult = await service.GetCharacteristicsAsync();
 
             if (charactiristicResult.Status != GattCommunicationStatus.Success)
-            {
-               await isCheckConnection();
-            }
+                await isCheckConnection();
 
             var characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
 
@@ -130,23 +124,20 @@ internal class Program
                     result = await bluetoothLeDevice.GetGattServicesAsync();
                     services = result.Services;
                     service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
-                    if(service == null)
-                    {
+                    if (service == null)
                         await isCheckConnectionCharacteristic();
-                        return;
-                    }
-                    charactiristicResult = await service.GetCharacteristicsAsync();
+                    else
+                    {
+                        charactiristicResult = await service.GetCharacteristicsAsync();
 
-                    if (characteristic == null) await isCheckConnectionCharacteristic();
+                        if (characteristic == null) await isCheckConnectionCharacteristic();
+                    }
                 }
                 catch (Exception ex) { await isCheckConnectionCharacteristic(); }
             }
 
-            if (characteristic == null)
-            {
-                await isCheckConnectionCharacteristic();
-            }
-               
+            if (characteristic == null) await isCheckConnectionCharacteristic();
+
             GattCommunicationStatus status;
             await CheckGattStatus();
 
@@ -155,12 +146,10 @@ internal class Program
                 try
                 {
                     status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                    if (status == GattCommunicationStatus.Success)
-                    {
+                    if (status != null && status == GattCommunicationStatus.Success)
                         Send($"connected: {device.Name}");
-                        return;
-                    }
-                    await CheckGattStatus();
+                    else
+                        await CheckGattStatus();
                 }
                 catch { await CheckGattStatus(); }
             }
@@ -170,7 +159,7 @@ internal class Program
 
             var service_ppg = services.FirstOrDefault(svc => svc.Uuid.ToString().Contains(PPG_ID));
 
-            var charactiristicResult_PPG = await service_ppg.GetCharacteristicsAsync();       
+            var charactiristicResult_PPG = await service_ppg.GetCharacteristicsAsync();
 
             var characteristic_PPG_Read = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString().Contains(PMD_DATA_UUID));
             await characteristic_PPG_Read.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
@@ -181,7 +170,7 @@ internal class Program
             await characteristic_PPG_Write.WriteValueAsync(PPG_SETTING.AsBuffer(), GattWriteOption.WriteWithoutResponse);
 
             bool isWearing = true;
-            
+
             characteristic.ValueChanged += (gattCharacteristic, eventArgs) =>
             {
                 var value = BitConverter.ToInt16(eventArgs.CharacteristicValue.ToArray().Reverse().ToArray(), 0);
@@ -189,14 +178,7 @@ internal class Program
                 Send($"hr: {value}");
             };
 
-            var engine = Python.CreateEngine();
-            var scriptSource = engine.CreateScriptSourceFromFile("./parser.py");
-
-            dynamic scope = engine.CreateScope();
-            scriptSource.Execute(scope);
-            dynamic myClass = scope.HRParser();
-
-            int iterationsOfNotBeingOnHand = 0;
+            int iterationsOfNotBeingOnHand = 4;
             characteristic_PPG_Read.ValueChanged += (gattCharacteristic, eventArgs) =>
             {
                 var arrayByte = eventArgs.CharacteristicValue.ToArray();
@@ -205,7 +187,7 @@ internal class Program
 
                 if (x.Count >= 35 && x.Count <= 43 && iterationsOfNotBeingOnHand > 0)
                     iterationsOfNotBeingOnHand--;
-                else if((x.Count < 35 || x.Count > 43) && iterationsOfNotBeingOnHand < 6)
+                else if ((x.Count < 35 || x.Count > 43) && iterationsOfNotBeingOnHand < 6)
                     iterationsOfNotBeingOnHand++;
 
                 if (iterationsOfNotBeingOnHand == 0) isWearing = true;
@@ -219,9 +201,9 @@ internal class Program
         {
             if (deviceId != null && update.Id == deviceId)
             {
-                deviceWatcher.Stop();
                 Send("error: disconnected2");
                 deviceId = null;
+                deviceWatcher.Stop();
             }
         };
 
@@ -229,9 +211,6 @@ internal class Program
         deviceWatcher.EnumerationCompleted += (sender, args) => deviceWatcher.Stop();
 
         deviceWatcher.Start();
-
-        while (true)
-            Thread.Sleep(50);
     }
 
     static List<double> ConvertedDynamicInDoubleList(dynamic diction)
