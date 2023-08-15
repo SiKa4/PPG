@@ -56,7 +56,7 @@ internal class Program
 
         string? deviceId = null;
 
-        Send("error: disconnected1");
+        Send("disconnected: disconnected1");
 
         deviceWatcher.Added += async (sender, device) =>
         {
@@ -220,7 +220,7 @@ internal class Program
             if (deviceId != null && update.Id == deviceId)
             {
                 deviceWatcher.Stop();
-                Send("error: disconnected2");
+                Send("disconnected: disconnected2");
                 deviceId = null;
             }
         };
