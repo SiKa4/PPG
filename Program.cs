@@ -12,6 +12,7 @@ using System.Text;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
+using Windows.Foundation;
 using Windows.Foundation.Diagnostics;
 using Windows.Storage.Streams;
 using Windows.UI.Xaml.Controls;
@@ -22,9 +23,9 @@ internal class Program
     private const string HeartRateServiceId = "180d";
     private const string HeartRateCharacteristicId = "00002a37-0000-1000-8000-00805f9b34fb";
 
-    private const string PPG_ID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
-    private const string PMD_CONTROL = "fb005c81-02e7-f387-1cad-8acd2d8df0c8";
-    private const string PMD_DATA_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
+    private const string PPG_ID = "5c80";
+    private const string PMD_CONTROL = "5c81";
+    private const string PMD_DATA_UUID = "5c82";
 
     private static BluetoothLEDevice bluetoothLeDevice;
     [STAThread]
@@ -52,41 +53,39 @@ internal class Program
             socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
             Console.WriteLine(message);
         };
-        
-        // Register event handlers before starting the watcher.
-        // Added, Updated and Removed are required to get all nearby devices
-        deviceWatcher.Updated += (sender, update) =>
-        {
-        };
 
         string? deviceId = null;
+
+        Send("error: disconnected1");
 
         deviceWatcher.Added += async (sender, device) =>
         {
             if (!device.Name.Contains(deviceName)) return;
-            Send($"connected: {device.Name}");
 
-            BluetoothLEDevice bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
-            var result = await bluetoothLeDevice.GetGattServicesAsync();
+            BluetoothLEDevice bluetoothLeDevice;
+            GattDeviceServicesResult result = null;
 
-            async void isCheckConnection(string error)
+            async Task isCheckConnection()
             {
-                bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
-                result = await bluetoothLeDevice.GetGattServicesAsync();
-                if (result.Status != GattCommunicationStatus.Success)
+                try
                 {
-                    Send(error);
-                    Thread.Sleep(1000);
-                    isCheckConnection(error);
+                    bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
+                    result = await bluetoothLeDevice.GetGattServicesAsync();
+                    if (result.Status != GattCommunicationStatus.Success)
+                    {
+                        Thread.Sleep(1000);
+                        await isCheckConnection();
+                    }
+                    else return;
                 }
-                else return;
+                catch
+                {
+                   await isCheckConnection();
+                }
+                
             }
 
-            if (result.Status != GattCommunicationStatus.Success)
-            {
-                Send("error: result.Status != GattCommunicationStatus.Success");
-                return;
-            }
+            if(result == null || result.Status != GattCommunicationStatus.Success) await isCheckConnection();
 
             var services = result.Services;
             var service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
@@ -96,8 +95,6 @@ internal class Program
                 service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
                 if (service == null)
                 {
-
-                    Send("error: HEART RATE SERVICE not found");
                     Thread.Sleep(1000);
                     isCheckServices();
                 }
@@ -117,70 +114,73 @@ internal class Program
 
             if (charactiristicResult.Status != GattCommunicationStatus.Success)
             {
-                isCheckConnection("error: service.GetCharacteristicsAsync()");
+               await isCheckConnection();
             }
 
             var characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
 
-            async void isCheckConnectionCharacteristic()
+            async Task isCheckConnectionCharacteristic()
             {
-                characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
-                if (characteristic == null)
+                try
                 {
+                    characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
                     //new initialization BLEDevice
+
                     bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
                     result = await bluetoothLeDevice.GetGattServicesAsync();
                     services = result.Services;
                     service = services.FirstOrDefault(svc => svc.Uuid.ToString("N").Substring(4, 4) == HeartRateServiceId);
+                    if(service == null)
+                    {
+                        await isCheckConnectionCharacteristic();
+                        return;
+                    }
                     charactiristicResult = await service.GetCharacteristicsAsync();
 
-                    Send("Reboot");
-                    Thread.Sleep(1000);
-                    isCheckConnectionCharacteristic();
+                    if (characteristic == null) await isCheckConnectionCharacteristic();
                 }
-                else
-                {
-                    return;
-                }
-
+                catch (Exception ex) { await isCheckConnectionCharacteristic(); }
             }
 
             if (characteristic == null)
             {
-               isCheckConnectionCharacteristic();
+                await isCheckConnectionCharacteristic();
             }
+               
+            GattCommunicationStatus status;
+            await CheckGattStatus();
 
-            var status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
-
-            if (status != GattCommunicationStatus.Success)
+            async Task CheckGattStatus()
             {
-                Send("error: status != GattCommunicationStatus.Success");
-                return;
+                try
+                {
+                    status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                    if (status == GattCommunicationStatus.Success)
+                    {
+                        Send($"connected: {device.Name}");
+                        return;
+                    }
+                    await CheckGattStatus();
+                }
+                catch { await CheckGattStatus(); }
             }
+
 
             deviceId = device.Id;
 
-            //ppg and hr listener 
+            var service_ppg = services.FirstOrDefault(svc => svc.Uuid.ToString().Contains(PPG_ID));
 
-            
+            var charactiristicResult_PPG = await service_ppg.GetCharacteristicsAsync();       
 
-            var service_ppg = services.FirstOrDefault(svc => svc.Uuid.ToString() == PPG_ID);
-
-            var charactiristicResult_PPG = await service_ppg.GetCharacteristicsAsync();
-
-            
-
-            
-
-            var characteristic_PPG_Read = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == PMD_DATA_UUID);
+            var characteristic_PPG_Read = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString().Contains(PMD_DATA_UUID));
             await characteristic_PPG_Read.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
 
-            var characteristic_PPG_Write = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == PMD_CONTROL);
+            var characteristic_PPG_Write = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString().Contains(PMD_CONTROL));
 
             byte[] PPG_SETTING = new byte[] { 2, 1, 0, 1, 55, 0, 1, 1, 22, 0, 4, 1, 4 };
             await characteristic_PPG_Write.WriteValueAsync(PPG_SETTING.AsBuffer(), GattWriteOption.WriteWithoutResponse);
 
-            bool isWearing = false;
+            bool isWearing = true;
             
             characteristic.ValueChanged += (gattCharacteristic, eventArgs) =>
             {
@@ -203,9 +203,9 @@ internal class Program
                 var result = myClass.parse_ppg(arrayByte);
                 List<double> x = ConvertedDynamicInDoubleList(result["x"]);
 
-                if (x.Count > 35 && iterationsOfNotBeingOnHand > 0)
+                if (x.Count >= 35 && x.Count <= 43 && iterationsOfNotBeingOnHand > 0)
                     iterationsOfNotBeingOnHand--;
-                else if(x.Count <= 35 && iterationsOfNotBeingOnHand < 6)
+                else if((x.Count < 35 || x.Count > 43) && iterationsOfNotBeingOnHand < 6)
                     iterationsOfNotBeingOnHand++;
 
                 if (iterationsOfNotBeingOnHand == 0) isWearing = true;
@@ -217,17 +217,21 @@ internal class Program
 
         deviceWatcher.Removed += (sender, update) =>
         {
-            if (update.Id != deviceId) return;
-            
-            //Send($"disconnected: {deviceId}");
-            //deviceId = null;
+            if (deviceId != null && update.Id == deviceId)
+            {
+                deviceWatcher.Stop();
+                Send("error: disconnected2");
+                deviceId = null;
+            }
         };
 
+        deviceWatcher.Stopped += (sender, args) => deviceWatcher.Start();
+        deviceWatcher.EnumerationCompleted += (sender, args) => deviceWatcher.Stop();
+
         deviceWatcher.Start();
+
         while (true)
-        {
             Thread.Sleep(50);
-        }
     }
 
     static List<double> ConvertedDynamicInDoubleList(dynamic diction)
