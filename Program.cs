@@ -1,17 +1,27 @@
-﻿using IronPython.Hosting;
+﻿﻿using IronPython.Hosting;
+using System;
+using System.Collections;
+using System.Diagnostics;
+using System.Diagnostics.Tracing;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
+using Windows.Foundation;
+using Windows.Foundation.Diagnostics;
+using Windows.Storage.Streams;
+using Windows.UI.Xaml.Controls;
 using static IronPython.Modules._ast;
 
 internal class Program
 {
     private const string HeartRateServiceId = "180d";
-    private const string HeartRateCharacteristicId = "00002a37-0000-1000-8000-00805f9b34fb";
+    private const string HeartRateCharacteristicId = "2a37";
 
     private const string PPG_ID = "5c80";
     private const string PMD_CONTROL = "5c81";
@@ -41,13 +51,12 @@ internal class Program
         var Send = (string message) =>
         {
             socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
+            Console.WriteLine(message);
         };
 
         string? deviceId = null;
 
-        Send($"disconnected: disconnected");
         //python parser
-
         var engine = Python.CreateEngine();
         var scriptSource = engine.CreateScriptSourceFromFile("./parser.py");
 
@@ -56,9 +65,11 @@ internal class Program
         dynamic myClass = scope.HRParser();
         ///
 
+        Send($"disconnected: disconnected");
+
         deviceWatcher.Added += async (sender, device) =>
         {
-            if (!device.Name.Contains(deviceName) || device.Id == deviceId) return;
+            if (!device.Name.Contains(deviceName)) return;
 
             BluetoothLEDevice bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
             GattDeviceServicesResult result = await bluetoothLeDevice.GetGattServicesAsync();
@@ -86,7 +97,7 @@ internal class Program
                 return;
             }
 
-            var characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString() == HeartRateCharacteristicId);
+            var characteristic = charactiristicResult.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString().Contains(HeartRateCharacteristicId));
 
             if (service == null || characteristic == null) 
             {
@@ -116,9 +127,9 @@ internal class Program
                 return;
             }
 
-            status = await characteristic_PPG_Read.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+            status =  await characteristic_PPG_Read.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
 
-            if (status != GattCommunicationStatus.Success)
+            if(status != GattCommunicationStatus.Success)
             {
                 Send($"disconnected: status != GattCommunicationStatus.Success");
                 return;
@@ -131,6 +142,8 @@ internal class Program
             byte[] PPG_SETTING = new byte[] { 2, 1, 0, 1, 55, 0, 1, 1, 22, 0, 4, 1, 4 };
             await characteristic_PPG_Write.WriteValueAsync(PPG_SETTING.AsBuffer(), GattWriteOption.WriteWithoutResponse);
 
+            int iterationsOfNotBeingOnHand = 4;
+
             bool isWearing = true;
 
             characteristic.ValueChanged += (gattCharacteristic, eventArgs) =>
@@ -140,7 +153,6 @@ internal class Program
                 Send($"hr: {value}");
             };
 
-            int iterationsOfNotBeingOnHand = 4;
             characteristic_PPG_Read.ValueChanged += (gattCharacteristic, eventArgs) =>
             {
                 var arrayByte = eventArgs.CharacteristicValue.ToArray();
@@ -154,7 +166,6 @@ internal class Program
 
                 if (iterationsOfNotBeingOnHand == 0) isWearing = true;
                 else if (iterationsOfNotBeingOnHand == 6) isWearing = false;
-
             };
         };
 
