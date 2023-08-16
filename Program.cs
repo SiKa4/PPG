@@ -51,7 +51,6 @@ internal class Program
         var Send = (string message) =>
         {
             socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
-            Console.WriteLine(message);
         };
 
         string? deviceId = null;
@@ -69,7 +68,7 @@ internal class Program
 
         deviceWatcher.Added += async (sender, device) =>
         {
-            if (!device.Name.Contains(deviceName)) return;
+            if (!device.Name.Contains(deviceName) || deviceId == device.Id) return;
 
             BluetoothLEDevice bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(device.Id);
             GattDeviceServicesResult result = await bluetoothLeDevice.GetGattServicesAsync();
@@ -153,7 +152,7 @@ internal class Program
                 Send($"hr: {value}");
             };
 
-            characteristic_PPG_Read.ValueChanged += (gattCharacteristic, eventArgs) =>
+            async Task ReadPPG(GattValueChangedEventArgs eventArgs)
             {
                 var arrayByte = eventArgs.CharacteristicValue.ToArray();
                 var result = myClass.parse_ppg(arrayByte);
@@ -166,6 +165,12 @@ internal class Program
 
                 if (iterationsOfNotBeingOnHand == 0) isWearing = true;
                 else if (iterationsOfNotBeingOnHand == 6) isWearing = false;
+            }
+
+            characteristic_PPG_Read.ValueChanged += async (gattCharacteristic, eventArgs) =>
+            {
+                ReadPPG(eventArgs);
+                await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
             };
         };
 
