@@ -41,11 +41,11 @@ internal class Program
         var Send = (string message) =>
         {
             socket.SendTo(Encoding.UTF8.GetBytes(message), ip);
-            Console.WriteLine(message);
         };
 
         string? deviceId = null;
 
+        Send($"disconnected: disconnected");
         //python parser
 
         var engine = Python.CreateEngine();
@@ -65,7 +65,7 @@ internal class Program
 
             if (result == null && result.Status != GattCommunicationStatus.Success)
             {
-                Send("result == null && result.Status != GattCommunicationStatus.Success");
+                Send($"disconnected: result == null && result.Status != GattCommunicationStatus.Success");
                 return;
             }
 
@@ -74,7 +74,7 @@ internal class Program
 
             if (service == null)
             {
-                Send("service == null");
+                Send($"disconnected: service == null");
                 return;
             }
 
@@ -82,7 +82,7 @@ internal class Program
 
             if (charactiristicResult.Status != GattCommunicationStatus.Success)
             {
-                Send("error: charactiristicResult.Status != GattCommunicationStatus.Success");
+                Send($"disconnected: charactiristicResult.Status != GattCommunicationStatus.Success");
                 return;
             }
 
@@ -90,19 +90,17 @@ internal class Program
 
             if (service == null || characteristic == null) 
             {
-                Send("error: service == null || characteristic == null");
+                Send($"disconnected: service == null || characteristic == null");
                 return;
             } 
 
-            GattCommunicationStatus status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify); ;
+            GattCommunicationStatus status = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
 
             if (status != GattCommunicationStatus.Success)
             {
-                Send("error: status != GattCommunicationStatus.Success");
+                Send($"disconnected: status != GattCommunicationStatus.Success");
                 return;
             }
-
-            Send($"connected: {device.Name}");
 
             deviceId = device.Id;
 
@@ -114,9 +112,19 @@ internal class Program
 
             if (characteristic_PPG_Read == null)
             {
-                Send("error: characteristic_PPG_Read == null");
+                Send($"disconnected: characteristic_PPG_Read == null");
                 return;
             }
+
+            status = await characteristic_PPG_Read.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+
+            if (status != GattCommunicationStatus.Success)
+            {
+                Send($"disconnected: status != GattCommunicationStatus.Success");
+                return;
+            }
+
+            Send($"connected: {device.Name}");
 
             var characteristic_PPG_Write = charactiristicResult_PPG.Characteristics.FirstOrDefault(chr => chr.Uuid.ToString().Contains(PMD_CONTROL));
 
